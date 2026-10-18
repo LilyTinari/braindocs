@@ -1,35 +1,65 @@
 import { useEffect, useRef } from "react";
 
-function lobe(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  rx: number,
-  ry: number,
-  t: number,
-  flip: number,
-) {
-  for (let ring = 1; ring <= 7; ring++) {
-    const k = ring / 7;
-    ctx.beginPath();
-    for (let step = 0; step <= 64; step++) {
-      const a = (step / 64) * Math.PI * 2;
-      const wave = 1 + 0.045 * Math.sin(a * 5 + ring + t) + 0.02 * Math.sin(a * 11 - t);
-      const x = cx + Math.cos(a) * rx * k * wave * flip;
-      const y = cy + Math.sin(a) * ry * k * wave * (0.92 + 0.04 * Math.sin(t + ring));
-      if (step === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.stroke();
-  }
-  ctx.beginPath();
-  ctx.moveTo(cx - rx * 0.15 * flip, cy - ry * 0.55);
-  ctx.quadraticCurveTo(cx + rx * 0.35 * flip, cy, cx - rx * 0.05 * flip, cy + ry * 0.72);
-  ctx.stroke();
+type Point = { x: number; y: number; z: number; tone: number; size: number };
+
+function fold(u: number, v: number) {
+  return (
+    0.055 * Math.sin(u * 5 + v * 2) * Math.sin(v * 3) +
+    0.028 * Math.sin(u * 9 - v * 4) +
+    0.016 * Math.cos(u * 3 + v * 7)
+  );
 }
 
-export function DocBrain({ className }: { className?: string }) {
+function hemisphere(u: number, v: number, side: number) {
+  const su = Math.sin(v);
+  let x = Math.cos(u) * su;
+  let y = Math.cos(v);
+  let z = Math.sin(u) * su;
+  const r = 1 + fold(u, v);
+  x *= 1.05 * r;
+  y *= 0.72 * r;
+  z *= 1.18 * r;
+  if (y < -0.05 && z < 0.15) y -= 0.16 * (1 - y);
+  if (y > 0.35) x *= 1.06;
+  const medial = x * side;
+  if (medial < 0.12) x += side * (0.12 - medial) * 0.65;
+  x += side * 0.22;
+  return { x, y, z };
+}
+
+function build(count: number): Point[] {
+  const points: Point[] = [];
+  const per = Math.floor(count * 0.42);
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < per; i++) {
+      const v = Math.acos(1 - (i / (per - 1)) * 2);
+      const u = i * 2.399963;
+      const p = hemisphere(u, v, side);
+      points.push({
+        ...p,
+        tone: side < 0 ? 0.2 : 0.62,
+        size: i % 19 === 0 ? 1.7 : 0.45 + (i % 3) * 0.22,
+      });
+    }
+  }
+  const cere = Math.floor(count * 0.12);
+  for (let i = 0; i < cere; i++) {
+    const v = Math.acos(1 - (i / (cere - 1)) * 2);
+    const u = i * 2.399963;
+    const s = 0.34 + fold(u * 1.4, v) * 0.4;
+    const side = i % 2 === 0 ? -1 : 1;
+    points.push({
+      x: Math.cos(u) * Math.sin(v) * s * 0.9 + side * 0.12,
+      y: Math.cos(v) * s * 0.72 - 0.72,
+      z: Math.sin(u) * Math.sin(v) * s - 0.28,
+      tone: 0.78,
+      size: 0.4,
+    });
+  }
+  return points;
+}
+
+export function DocBrain({ className, count = 4200 }: { className?: string; count?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -37,9 +67,13 @@ export function DocBrain({ className }: { className?: string }) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const points = build(count);
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let frame = 0;
+    const drag = { x: 0.45, y: 0.18 };
     let alive = true;
+    let frame = 0;
+    let pointer = 0;
+    let origin = { x: 0, y: 0, yaw: 0, pitch: 0 };
 
     const draw = (now: number) => {
       if (!alive) return;
@@ -50,35 +84,110 @@ export function DocBrain({ className }: { className?: string }) {
         frame = requestAnimationFrame(draw);
         return;
       }
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
+      const pw = Math.floor(w * dpr);
+      const ph = Math.floor(h * dpr);
+      if (canvas.width !== pw || canvas.height !== ph) {
+        canvas.width = pw;
+        canvas.height = ph;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      const t = reduce ? 0.6 : now * 0.0007;
-      const bob = reduce ? 0 : Math.sin(now * 0.0008) * 6;
+      const yaw = drag.x + (reduce ? 0 : now * 0.00012);
+      const pitch = drag.y;
+      const cyaw = Math.cos(yaw);
+      const syaw = Math.sin(yaw);
+      const cpitch = Math.cos(pitch);
+      const spitch = Math.sin(pitch);
       const cx = w * 0.5;
-      const cy = h * 0.48 + bob;
-      const rx = Math.min(w, h) * 0.2;
-      const ry = rx * 1.15;
-      ctx.lineWidth = 1.15;
-      ctx.strokeStyle = "rgba(61, 214, 140, 0.78)";
-      lobe(ctx, cx - rx * 0.72, cy, rx, ry, t, 1);
-      ctx.strokeStyle = "rgba(158, 201, 212, 0.72)";
-      lobe(ctx, cx + rx * 0.72, cy, rx, ry, t + 0.8, -1);
-      ctx.strokeStyle = "rgba(61, 214, 140, 0.35)";
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - ry * 0.2);
-      ctx.lineTo(cx, cy + ry * 1.15);
-      ctx.stroke();
+      const cy = h * 0.4;
+      const scale = Math.min(w, h) * 0.46;
+      const project = (p: { x: number; y: number; z: number }) => {
+        const x1 = p.x * cyaw - p.z * syaw;
+        const z1 = p.x * syaw + p.z * cyaw;
+        const y1 = p.y * cpitch - z1 * spitch;
+        const z2 = p.y * spitch + z1 * cpitch;
+        return { x: cx + x1 * scale, y: cy + y1 * scale, z: z2 };
+      };
+      ctx.lineWidth = 1;
+      for (const side of [-1, 1]) {
+        for (let ring = 1; ring <= 10; ring++) {
+          const v = (ring / 11) * Math.PI;
+          ctx.beginPath();
+          let drawing = false;
+          for (let step = 0; step <= 56; step++) {
+            const u = (step / 56) * Math.PI * 2;
+            const projected = project(hemisphere(u, v, side));
+            if (projected.z < -0.05) {
+              drawing = false;
+              continue;
+            }
+            if (!drawing) {
+              ctx.moveTo(projected.x, projected.y);
+              drawing = true;
+            } else ctx.lineTo(projected.x, projected.y);
+          }
+          ctx.strokeStyle = side < 0 ? "rgba(158, 201, 212, 0.45)" : "rgba(244, 244, 242, 0.28)";
+          ctx.stroke();
+        }
+      }
+      const painted: { x: number; y: number; z: number; tone: number; size: number }[] = [];
+      for (const point of points) {
+        const x1 = point.x * cyaw - point.z * syaw;
+        const z1 = point.x * syaw + point.z * cyaw;
+        const y1 = point.y * cpitch - z1 * spitch;
+        const z2 = point.y * spitch + z1 * cpitch;
+        painted.push({
+          x: cx + x1 * scale,
+          y: cy + y1 * scale,
+          z: z2,
+          tone: point.tone,
+          size: point.size * (0.75 + (z2 + 1.2) * 0.35),
+        });
+      }
+      painted.sort((a, b) => a.z - b.z);
+      for (const point of painted) {
+        const depth = (point.z + 1.3) / 2.4;
+        const alpha = 0.08 + depth * 0.72;
+        const neural = point.tone < 0.5;
+        ctx.fillStyle = neural
+          ? `rgba(158, 201, 212, ${alpha})`
+          : `rgba(244, 244, 242, ${alpha * 0.9})`;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, Math.max(0.6, point.size), 0, Math.PI * 2);
+        ctx.fill();
+      }
       if (!reduce) frame = requestAnimationFrame(draw);
     };
 
+    const onDown = (event: PointerEvent) => {
+      pointer = event.pointerId;
+      origin = { x: event.clientX, y: event.clientY, yaw: drag.x, pitch: drag.y };
+    };
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointer || (event.buttons === 0 && event.pointerType === "mouse")) return;
+      const dx = event.clientX - origin.x;
+      const dy = event.clientY - origin.y;
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      if (Math.abs(dy) > Math.abs(dx)) return;
+      drag.x = origin.yaw + dx * 0.008;
+      drag.y = Math.max(-0.7, Math.min(0.7, origin.pitch + dy * 0.005));
+    };
+    const onUp = () => {
+      pointer = 0;
+    };
+
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
     frame = requestAnimationFrame(draw);
     return () => {
       alive = false;
       cancelAnimationFrame(frame);
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
     };
-  }, []);
+  }, [count]);
 
   return <canvas ref={ref} className={className} aria-hidden="true" />;
 }
