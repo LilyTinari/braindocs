@@ -1,6 +1,13 @@
+import { useEffect, useRef, useState } from "react";
 import { DocBrain } from "./brain";
 import type { BrainFile } from "./model";
 import { claimsIn, compute } from "./sheet";
+
+function wantsIntro() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+  if (sessionStorage.getItem("bd-intro")) return false;
+  return true;
+}
 
 export function Home({
   author,
@@ -19,9 +26,75 @@ export function Home({
   const claim = sample ? claimsIn(sample.doc)[0] : undefined;
   const ready = Boolean(sample && result.value !== null && claim && claim.value === result.value);
   const conflict = Boolean(sample && result.value !== null && claim && claim.value !== result.value);
+  const story = useRef<HTMLElement>(null);
+  const [play] = useState(wantsIntro);
+  const [intro, setIntro] = useState(play);
+
+  useEffect(() => {
+    document.documentElement.classList.add("motion");
+    const nodes = document.querySelectorAll(".chapter");
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      nodes.forEach((node) => node.classList.add("in"));
+      return;
+    }
+    const seen = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) entry.target.classList.add("in");
+        }
+      },
+      { threshold: 0.2 },
+    );
+    nodes.forEach((node) => seen.observe(node));
+    return () => seen.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!intro) return;
+    document.documentElement.classList.add("intro-lock");
+    const done = () => {
+      sessionStorage.setItem("bd-intro", "1");
+      document.documentElement.classList.remove("intro-lock");
+      setIntro(false);
+    };
+    const timer = window.setTimeout(done, 3200);
+    const skip = (event: KeyboardEvent) => {
+      if (event.key === "Escape") done();
+    };
+    window.addEventListener("keydown", skip);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", skip);
+      document.documentElement.classList.remove("intro-lock");
+    };
+  }, [intro]);
+
+  useEffect(() => {
+    const node = story.current;
+    if (!node) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return;
+    const onScroll = () => {
+      const total = node.offsetHeight - window.innerHeight;
+      const passed = window.scrollY - node.offsetTop;
+      const progress = total <= 0 ? 0 : Math.min(1, Math.max(0, passed / total));
+      node.style.setProperty("--p", progress.toFixed(3));
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
 
   return (
-    <>
+    <div className={intro ? "opening" : "opened"}>
+      <div className="wordmark" aria-hidden={!intro}>
+        <strong>BrainDocs</strong>
+      </div>
       <header className="wrap nav">
         <button className="brand" type="button">
           <Mark />
@@ -36,37 +109,41 @@ export function Home({
           </button>
         </div>
       </header>
-      <section className="field" aria-label="Interactive neural field. Drag sideways to turn it.">
-        <DocBrain className="field-brain" />
-        <div className="veil" />
-        <div className="wrap field-copy">
-          <p className="kicker">Your workspace. With a brain.</p>
-          <h1>
-            Your ideas, <em>connected.</em>
-          </h1>
-          <p className="lede">
-            Write, calculate and create together. A shared space for your work — with a brain that
-            thinks alongside you, inside the file.
-          </p>
-          <div className="row">
-            <button className="solid" type="button" onClick={onFiles}>
-              Open my files
-            </button>
-            <button className="ghost" type="button" onClick={onAccount}>
-              Create an account
-            </button>
+      <section className="story" ref={story} aria-label="Interactive neural field. Drag sideways to turn it.">
+        <div className="story-pin field">
+          <DocBrain className="field-brain" assembled={!play} />
+          <div className="veil" />
+          <div className="field-fade">
+            <div className="wrap field-copy">
+              <p className="kicker">Your workspace. With a brain.</p>
+              <h1>
+                Your ideas, <em>connected.</em>
+              </h1>
+              <p className="lede">
+                Write, calculate and create together. A shared space for your work — with a brain that
+                thinks alongside you, inside the file.
+              </p>
+              <div className="row">
+                <button className="solid" type="button" onClick={onFiles}>
+                  Open my files
+                </button>
+                <button className="ghost" type="button" onClick={onAccount}>
+                  Create an account
+                </button>
+              </div>
+              <p className="hint">Drag the field. Scroll to move through it.</p>
+            </div>
           </div>
-          <p className="hint">Drag the field. Version history stays yours to approve.</p>
         </div>
       </section>
       <main className="wrap">
-        <section className="section">
+        <section className="section chapter">
           <p className="kicker">A connected workspace</p>
           <h2>One idea. Every possibility.</h2>
           <p className="lede">Documents. Numbers. People.</p>
           <div className="split">
             <div className="brain-well" aria-hidden="true">
-              <DocBrain count={1600} />
+              <DocBrain count={1600} assembled />
             </div>
             <article className="preview">
               <div className="doc-bar">
@@ -104,7 +181,7 @@ export function Home({
           </div>
         </section>
 
-        <section className="section notes">
+        <section className="section notes chapter">
           <article>
             <p className="kicker">01</p>
             <h3>From first thought to final draft</h3>
@@ -122,7 +199,7 @@ export function Home({
           </article>
         </section>
 
-        <section className="section close">
+        <section className="section close chapter">
           <p className="kicker">Room for your next idea</p>
           <h2>Make something worth sharing.</h2>
           <button className="solid" type="button" onClick={onFiles}>
@@ -134,7 +211,7 @@ export function Home({
         <span>BrainDocs</span>
         <span>Docs and sheets with a brain.</span>
       </footer>
-    </>
+    </div>
   );
 }
 

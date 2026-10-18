@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-type Point = { x: number; y: number; z: number; tone: number; size: number };
+type Point = { x: number; y: number; z: number; tone: number; size: number; seed: number };
 
 function fold(u: number, v: number) {
   return (
@@ -39,6 +39,7 @@ function build(count: number): Point[] {
         ...p,
         tone: side < 0 ? 0.2 : 0.62,
         size: i % 19 === 0 ? 1.7 : 0.45 + (i % 3) * 0.22,
+        seed: (i * 0.618) % 1,
       });
     }
   }
@@ -54,12 +55,21 @@ function build(count: number): Point[] {
       z: Math.sin(u) * Math.sin(v) * s - 0.28,
       tone: 0.78,
       size: 0.4,
+      seed: (i * 0.414) % 1,
     });
   }
   return points;
 }
 
-export function DocBrain({ className, count = 4200 }: { className?: string; count?: number }) {
+export function DocBrain({
+  className,
+  count = 4200,
+  assembled = false,
+}: {
+  className?: string;
+  count?: number;
+  assembled?: boolean;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -68,8 +78,9 @@ export function DocBrain({ className, count = 4200 }: { className?: string; coun
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const points = build(count);
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const drag = { x: 0.45, y: 0.18 };
+    const born = performance.now();
     let alive = true;
     let frame = 0;
     let pointer = 0;
@@ -92,8 +103,10 @@ export function DocBrain({ className, count = 4200 }: { className?: string; coun
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      const yaw = drag.x + (reduce ? 0 : now * 0.00012);
+      const yaw = drag.x + (still ? 0 : now * 0.00012);
       const pitch = drag.y;
+      const raw = still || assembled ? 1 : Math.min(1, Math.max(0, (now - born - 700) / 1900));
+      const ease = raw * raw * (3 - 2 * raw);
       const cyaw = Math.cos(yaw);
       const syaw = Math.sin(yaw);
       const cpitch = Math.cos(pitch);
@@ -126,16 +139,23 @@ export function DocBrain({ className, count = 4200 }: { className?: string; coun
               drawing = true;
             } else ctx.lineTo(projected.x, projected.y);
           }
-          ctx.strokeStyle = side < 0 ? "rgba(158, 201, 212, 0.45)" : "rgba(244, 244, 242, 0.28)";
+          ctx.strokeStyle = side < 0 ? `rgba(158, 201, 212, ${0.45 * ease})` : `rgba(244, 244, 242, ${0.28 * ease})`;
           ctx.stroke();
         }
       }
       const painted: { x: number; y: number; z: number; tone: number; size: number }[] = [];
       for (const point of points) {
-        const x1 = point.x * cyaw - point.z * syaw;
-        const z1 = point.x * syaw + point.z * cyaw;
-        const y1 = point.y * cpitch - z1 * spitch;
-        const z2 = point.y * spitch + z1 * cpitch;
+        const scatter = 1 + (1 - ease) * (2.6 + point.seed * 5.2);
+        const spin = (1 - ease) * point.seed * 7.5;
+        const cs = Math.cos(spin);
+        const sn = Math.sin(spin);
+        const sx = point.x * cs - point.z * sn;
+        const sz = point.x * sn + point.z * cs;
+        const sy = point.y + (1 - ease) * (point.seed - 0.5) * 3.4;
+        const x1 = sx * scatter * cyaw - sz * scatter * syaw;
+        const z1 = sx * scatter * syaw + sz * scatter * cyaw;
+        const y1 = sy * scatter * cpitch - z1 * spitch;
+        const z2 = sy * scatter * spitch + z1 * cpitch;
         painted.push({
           x: cx + x1 * scale,
           y: cy + y1 * scale,
@@ -147,7 +167,7 @@ export function DocBrain({ className, count = 4200 }: { className?: string; coun
       painted.sort((a, b) => a.z - b.z);
       for (const point of painted) {
         const depth = (point.z + 1.3) / 2.4;
-        const alpha = 0.08 + depth * 0.72;
+        const alpha = (0.08 + depth * 0.72) * (0.28 + ease * 0.72);
         const neural = point.tone < 0.5;
         ctx.fillStyle = neural
           ? `rgba(158, 201, 212, ${alpha})`
@@ -156,7 +176,7 @@ export function DocBrain({ className, count = 4200 }: { className?: string; coun
         ctx.arc(point.x, point.y, Math.max(0.6, point.size), 0, Math.PI * 2);
         ctx.fill();
       }
-      if (!reduce) frame = requestAnimationFrame(draw);
+      if (!still) frame = requestAnimationFrame(draw);
     };
 
     const onDown = (event: PointerEvent) => {
@@ -187,7 +207,7 @@ export function DocBrain({ className, count = 4200 }: { className?: string; coun
       canvas.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [count]);
+  }, [assembled, count]);
 
   return <canvas ref={ref} className={className} aria-hidden="true" />;
 }
