@@ -109,7 +109,7 @@ export function Home({
           </button>
         </div>
       </header>
-      <section className="story" ref={story} aria-label="Interactive neural field. Drag sideways to turn it.">
+      <section className="story" ref={story} aria-label="A document. Its lines gather into a brain. Drag sideways to turn it.">
         <div className="story-pin field">
           <DocBrain className="field-brain" assembled={!play} />
           <div className="veil" />
@@ -131,7 +131,7 @@ export function Home({
                   Create an account
                 </button>
               </div>
-              <p className="hint">Drag the field. Scroll to move through it.</p>
+              <p className="hint">The lines settle into the brain. Drag the page to turn it.</p>
             </div>
           </div>
         </div>

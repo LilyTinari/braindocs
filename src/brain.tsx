@@ -107,13 +107,48 @@ export function DocBrain({
       const pitch = drag.y;
       const raw = still || assembled ? 1 : Math.min(1, Math.max(0, (now - born - 700) / 1900));
       const ease = raw * raw * (3 - 2 * raw);
+      const pageRaw = still || assembled ? 1 : Math.min(1, Math.max(0, (now - born - 180) / 700));
+      const pageEase = pageRaw * pageRaw * (3 - 2 * pageRaw);
       const cyaw = Math.cos(yaw);
       const syaw = Math.sin(yaw);
       const cpitch = Math.cos(pitch);
       const spitch = Math.sin(pitch);
+      const pageW = Math.min(w * 0.7, h * 0.56, 440);
+      const pageH = pageW * 1.28;
       const cx = w * 0.5;
-      const cy = h * 0.4;
-      const scale = Math.min(w, h) * 0.46;
+      const pageX = cx - pageW / 2;
+      const pageY = Math.max(16, h * 0.05);
+      const cy = pageY + pageH * 0.46;
+      const scale = pageW * 0.3;
+      ctx.globalAlpha = pageEase;
+      ctx.beginPath();
+      ctx.roundRect(pageX, pageY, pageW, pageH, 14);
+      ctx.fillStyle = "rgba(12, 13, 16, 0.88)";
+      ctx.fill();
+      ctx.lineWidth = 1.25;
+      ctx.strokeStyle = "rgba(236, 234, 228, 0.55)";
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pageX + pageW - 28, pageY);
+      ctx.lineTo(pageX + pageW - 28, pageY + 28);
+      ctx.lineTo(pageX + pageW, pageY + 28);
+      ctx.strokeStyle = "rgba(158, 201, 212, 0.45)";
+      ctx.stroke();
+      ctx.globalAlpha = pageEase * (0.16 + (1 - ease) * 0.35);
+      ctx.strokeStyle = "rgba(244, 244, 242, 0.7)";
+      ctx.lineWidth = 1;
+      for (let line = 0; line < 9; line++) {
+        const y = pageY + 36 + line * ((pageH - 72) / 8);
+        ctx.beginPath();
+        ctx.moveTo(pageX + 28, y);
+        ctx.lineTo(pageX + pageW - 28, y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(pageX + 1, pageY + 1, pageW - 2, pageH - 2, 12);
+      ctx.clip();
       const project = (p: { x: number; y: number; z: number }) => {
         const x1 = p.x * cyaw - p.z * syaw;
         const z1 = p.x * syaw + p.z * cyaw;
@@ -145,20 +180,22 @@ export function DocBrain({
       }
       const painted: { x: number; y: number; z: number; tone: number; size: number }[] = [];
       for (const point of points) {
-        const scatter = 1 + (1 - ease) * (2.6 + point.seed * 5.2);
-        const spin = (1 - ease) * point.seed * 7.5;
+        const spin = (1 - ease) * point.seed * 2.2;
         const cs = Math.cos(spin);
         const sn = Math.sin(spin);
         const sx = point.x * cs - point.z * sn;
         const sz = point.x * sn + point.z * cs;
         const sy = point.y + (1 - ease) * (point.seed - 0.5) * 3.4;
-        const x1 = sx * scatter * cyaw - sz * scatter * syaw;
-        const z1 = sx * scatter * syaw + sz * scatter * cyaw;
-        const y1 = sy * scatter * cpitch - z1 * spitch;
-        const z2 = sy * scatter * spitch + z1 * cpitch;
+        const x1 = sx * cyaw - sz * syaw;
+        const z1 = sx * syaw + sz * cyaw;
+        const y1 = sy * cpitch - z1 * spitch;
+        const z2 = sy * spitch + z1 * cpitch;
+        const row = Math.floor(point.seed * 9);
+        const fromX = pageX + 28 + ((point.seed * 13) % 1) * (pageW - 56);
+        const fromY = pageY + 36 + row * ((pageH - 72) / 8);
         painted.push({
-          x: cx + x1 * scale,
-          y: cy + y1 * scale,
+          x: fromX + (cx + x1 * scale - fromX) * ease,
+          y: fromY + (cy + y1 * scale - fromY) * ease,
           z: z2,
           tone: point.tone,
           size: point.size * (0.75 + (z2 + 1.2) * 0.35),
@@ -176,6 +213,7 @@ export function DocBrain({
         ctx.arc(point.x, point.y, Math.max(0.6, point.size), 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.restore();
       if (!still) frame = requestAnimationFrame(draw);
     };
 
