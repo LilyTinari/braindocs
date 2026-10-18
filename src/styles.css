@@ -7,6 +7,7 @@
   --line: #21262d;
   --green: #3dd68c;
   --green-ink: #042117;
+  --neural: #9ec9d4;
   --danger: #f07178;
   --warn: #e3b341;
   color-scheme: dark;
@@ -111,7 +112,8 @@ h2 { font-size: clamp(1.8rem, 5vw, 2.8rem); }
 .fine { font-size: 0.9rem; }
 .tabs { display: flex; gap: 8px; overflow: auto; }
 .tabs button[data-on="true"],
-.file-tabs button[data-on="true"] {
+.file-tabs button[data-on="true"],
+.toolbar button[data-on="true"] {
   background: var(--green);
   color: var(--green-ink);
   border-color: var(--green);
@@ -195,6 +197,46 @@ input[type="text"], input[type="email"] {
   gap: 12px;
 }
 footer { padding: 8px 0 36px; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
+.subhead { display: block; margin-top: 10px; font-size: 0.58em; }
+.preview, .lucien { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.preview { margin-top: 18px; padding: 8px 8px 16px; }
+.preview h3, .preview p, .lucien { margin-left: 8px; margin-right: 8px; }
+.lucien { margin-top: 14px; padding: 8px; }
+.ok.inline { display: inline-block; margin: 8px 0; }
+.page { min-height: 100dvh; }
+.pad { padding: 14px; }
+.pad-inline { padding: 0 14px; }
+.search, .title { min-width: 0; }
+.search { flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--elev); padding: 0 12px; }
+.title { flex: 1; background: transparent; border: 0; font-weight: 600; font-size: 1rem; }
+.templates { display: flex; gap: 10px; overflow: auto; margin-top: 12px; }
+.template { min-width: 168px; text-align: left; background: var(--elev); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 6px; }
+.template span, .file-main .fine { display: block; }
+.list-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.list-head h2 { margin-right: auto; }
+.list-head select { min-height: 40px; background: var(--elev); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; }
+.file-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.file-list li { position: relative; display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 14px; padding: 6px; background: var(--surface); }
+.file-main { flex: 1; display: flex; gap: 10px; align-items: center; text-align: left; background: none; border: 0; min-height: 48px; color: inherit; }
+.badge { color: var(--green); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; min-width: 42px; }
+.badge.sheet { color: var(--neural); }
+.icon { min-width: 44px; padding: 0 8px; }
+.pop { position: absolute; right: 8px; top: 52px; z-index: 6; background: var(--elev); border: 1px solid var(--line); border-radius: 12px; display: grid; min-width: 180px; }
+.pop button { background: none; border: 0; text-align: left; min-height: 44px; padding: 0 12px; }
+.pop.export { position: relative; right: auto; top: auto; margin: 8px 14px; }
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 40; }
+.drawer { width: min(320px, 88vw); height: 100%; background: var(--surface); overflow: auto; display: flex; flex-direction: column; }
+.drawer > button { text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); min-height: 48px; padding: 0 16px; }
+.toolbar { display: flex; gap: 8px; overflow: auto; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.doc-body { width: 100%; min-height: 52dvh; background: transparent; border: 0; padding: 16px; line-height: 1.55; font-size: 1.05rem; }
+.formula { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.formula span { color: var(--muted); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.78rem; }
+.formula input { flex: 1; min-width: 0; }
+.grid-scroll { overflow: auto; }
+.sheet td button { width: 100%; min-width: 84px; min-height: 40px; background: transparent; border: 0; text-align: left; padding: 8px; color: var(--fg); }
+.bars { display: grid; gap: 8px; }
+.bars div { display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; align-items: center; }
+.bars i { display: block; height: 8px; border-radius: 99px; background: var(--green); }
 
 @media (min-width: 900px) {
   .hero { grid-template-columns: 1.05fr 0.95fr; align-items: center; }

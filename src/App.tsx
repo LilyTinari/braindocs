@@ -1,256 +1,175 @@
-import { useEffect, useMemo, useState } from "react";
-import { DocBrain } from "./brain";
-import { alignClaim, claimsIn, compute, type Grid } from "./sheet";
+import { useEffect, useState } from "react";
+import { Editor } from "./editor";
+import { Files } from "./files";
+import { Home } from "./home";
+import {
+  loadLibrary,
+  makeFile,
+  meetingNotes,
+  projectBrief,
+  saveLibrary,
+  type BrainFile,
+  type Kind,
+  type Library,
+} from "./model";
+import type { Grid } from "./sheet";
 
-type View = "home" | "files";
-type Pane = "doc" | "sheet" | "split";
+type Route =
+  | { name: "home" }
+  | { name: "files"; scope: "files" | "starred" | "trash" }
+  | { name: "file"; id: string }
+  | { name: "place"; id: Place };
 
-type Snapshot = { at: string; doc: string; grid: Grid };
+type Place = "chat" | "teams" | "transcribe" | "meetings" | "shared" | "memory" | "settings";
 
-type FileState = {
-  doc: string;
-  grid: Grid;
-  versions: Snapshot[];
-  approvedAt: string | null;
-  author: string;
-};
-
-const STORE = "braindocs.file";
-
-const starterDoc = `Launch brief
-
-Good ideas deserve a clear beginning.
-
-Bring the team together around one plan. The notes put the gap at 95.`;
-
-const starterGrid: Grid = {
-  A1: "250",
-  A2: "160",
-  A3: "=A1-A2",
-  B1: "Plan",
-  B2: "Hold",
-  B3: "Gap",
-};
-
-function load(): FileState {
-  try {
-    const raw = localStorage.getItem(STORE);
-    if (!raw) throw new Error("empty");
-    const parsed = JSON.parse(raw) as FileState;
-    if (parsed?.doc && parsed.grid) return parsed;
-  } catch {
-    /* fresh file */
-  }
-  return { doc: starterDoc, grid: starterGrid, versions: [], approvedAt: null, author: "" };
-}
-
-function Mark() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-      <path d="M4 15c3-1 5-4 7-8 2 4 4 7 7 8" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="11" cy="8" r="1.3" fill="currentColor" />
-    </svg>
-  );
-}
+const places: { id: Place; label: string; body: string }[] = [
+  { id: "chat", label: "Chat", body: "Lucien reads the file you have open. A separate inbox is not on this page." },
+  { id: "teams", label: "Brain teams", body: "A team would be the people on a file. Sharing across accounts is not on this build." },
+  { id: "transcribe", label: "Transcribe", body: "Paste a link. It stays on this device. A transcript is not fetched from here." },
+  { id: "meetings", label: "Meetings", body: "No meeting is connected. Notes you write live in a document." },
+  { id: "shared", label: "Shared brain", body: "A shared brain reads one person’s graph. These files stay in this browser." },
+  { id: "memory", label: "Memory", body: "What this browser has actually edited." },
+  { id: "settings", label: "Settings", body: "The name on your files. It does not leave this device." },
+];
 
 export function App() {
-  const [view, setView] = useState<View>("home");
-  const [pane, setPane] = useState<Pane>("doc");
-  const [file, setFile] = useState<FileState>(load);
+  const [lib, setLib] = useState<Library>(loadLibrary);
+  const [route, setRoute] = useState<Route>({ name: "home" });
+  const [drawer, setDrawer] = useState(false);
   const [account, setAccount] = useState(false);
-  const [active, setActive] = useState("A3");
-  const [link, setLink] = useState("");
 
   useEffect(() => {
-    localStorage.setItem(STORE, JSON.stringify(file));
-  }, [file]);
+    saveLibrary(lib);
+  }, [lib]);
 
-  const result = compute(file.grid, "A3");
-  const claims = useMemo(() => claimsIn(file.doc), [file.doc]);
-  const mismatch = claims.find((c) => result.value !== null && c.value !== result.value) ?? null;
-  const clear = result.value !== null && !mismatch;
-
-  function patch(next: Partial<FileState>) {
-    setFile((prev) => ({ ...prev, ...next, approvedAt: null }));
+  function add(kind: Kind, name: string, doc = "", grid: Grid = {}) {
+    const body = name === "Meeting notes" ? meetingNotes : name === "Project brief" ? projectBrief : name === "Launch brief" ? launchBody() : doc;
+    const next = makeFile(kind, name, body, name === "Launch brief" ? { A1: "250", A2: "160", A3: "=A1-A2" } : grid);
+    setLib((prev) => ({ ...prev, files: [next, ...prev.files] }));
+    setRoute({ name: "file", id: next.id });
   }
 
-  function align() {
-    if (result.value === null) return;
-    patch({ doc: alignClaim(file.doc, result.value) });
-  }
-
-  function openFiles() {
-    setPane("split");
-    setView("files");
-  }
-
-  function approve() {
-    if (!clear) return;
-    const snap: Snapshot = { at: new Date().toISOString(), doc: file.doc, grid: { ...file.grid } };
-    setFile((prev) => ({
+  function update(id: string, recipe: (file: BrainFile) => BrainFile) {
+    setLib((prev) => ({
       ...prev,
-      approvedAt: snap.at,
-      versions: [snap, ...prev.versions].slice(0, 8),
+      files: prev.files.map((file) => (file.id === id ? { ...recipe(file), updated: Date.now() } : file)),
     }));
   }
 
+  const open = route.name === "file" ? lib.files.find((file) => file.id === route.id) : undefined;
+
   return (
     <>
-      {view === "home" ? (
-        <>
-          <header className="wrap nav">
-            <button className="brand" type="button" onClick={() => setView("home")}>
-              <Mark />
-              BrainDocs
-            </button>
-            <div className="nav-actions">
-              <button className="quiet" type="button" onClick={() => setAccount(true)}>
-                {file.author || "Sign in"}
-              </button>
-              <button className="ghost" type="button" onClick={openFiles}>
-                Open my files
+      {route.name === "home" ? (
+        <Home
+          author={lib.author}
+          sample={lib.files.find((file) => file.id === "sample-launch" && !file.trashed)}
+          onFiles={() => setRoute({ name: "files", scope: "files" })}
+          onAccount={() => setAccount(true)}
+          onOpen={(id) => setRoute({ name: "file", id })}
+        />
+      ) : null}
+      {route.name === "files" ? (
+        <Files
+          files={lib.files}
+          scope={route.scope}
+          onMenu={() => setDrawer(true)}
+          onOpen={(id) => setRoute({ name: "file", id })}
+          onCreate={(kind, name) => add(kind, name)}
+          onImport={(name, grid) => add("sheet", name, "", grid)}
+          onStar={(id) => update(id, (file) => ({ ...file, starred: !file.starred }))}
+          onTrash={(id) => update(id, (file) => ({ ...file, trashed: true }))}
+          onRestore={(id) => update(id, (file) => ({ ...file, trashed: false }))}
+        />
+      ) : null}
+      {route.name === "file" && open ? (
+        <Editor
+          file={open}
+          onBack={() => setRoute({ name: "files", scope: "files" })}
+          onChange={(next) =>
+            update(open.id, (file) => ({
+              ...file,
+              ...next,
+              approvedAt: null,
+            }))
+          }
+          onApprove={() =>
+            update(open.id, (file) => ({
+              ...file,
+              approvedAt: Date.now(),
+              versions: [{ at: Date.now(), doc: file.doc, grid: file.grid }, ...file.versions].slice(0, 6),
+            }))
+          }
+        />
+      ) : null}
+      {route.name === "place" ? (
+        <PlaceView
+          id={route.id}
+          lib={lib}
+          onBack={() => setRoute({ name: "files", scope: "files" })}
+          onAuthor={(author) => setLib((prev) => ({ ...prev, author }))}
+          onClip={(clip) => setLib((prev) => ({ ...prev, clips: [clip, ...prev.clips].slice(0, 12) }))}
+          onSignOut={() => setLib((prev) => ({ ...prev, author: "" }))}
+        />
+      ) : null}
+      {drawer ? (
+        <div className="drawer-backdrop" onClick={() => setDrawer(false)}>
+          <nav className="drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="studio-bar">
+              <strong>BrainDocs</strong>
+              <button className="quiet" type="button" onClick={() => setDrawer(false)}>
+                Close
               </button>
             </div>
-          </header>
-          <main className="wrap">
-            <section className="hero">
-              <div>
-                <p className="kicker">Your workspace. With a brain.</p>
-                <h1 style={{ marginTop: 12 }}>
-                  Your ideas, <span className="accent">connected.</span>
-                </h1>
-                <p className="lede">
-                  Write, calculate and create together. A shared page for the work — with a brain
-                  that sits inside the document and checks the words against the sheet.
-                </p>
-                <div className="row">
-                  <button className="solid" type="button" onClick={openFiles}>
-                    Open my files
-                  </button>
-                  <button className="ghost" type="button" onClick={() => setAccount(true)}>
-                    Create an account
-                  </button>
-                </div>
-                <div className="meta">
-                  <span>Version history</span>
-                  <span>Your approval first</span>
-                </div>
-              </div>
-              <article className="doc-stage" aria-label="A document with a brain inside it">
-                <div className="doc-bar">
-                  <span><i className="dot" /> launch-brief.md</span>
-                  <span>main</span>
-                </div>
-                <DocBrain className="doc-brain" />
-              </article>
-            </section>
-
-            <section className="section">
-              <p className="kicker">One idea. Every possibility.</p>
-              <h2 style={{ margin: "10px 0 8px" }}>Documents. Numbers. People.</h2>
-              <div className="tabs" style={{ margin: "16px 0" }}>
-                {(["doc", "sheet", "split"] as Pane[]).map((id) => (
-                  <button key={id} className="ghost" type="button" data-on={pane === id} onClick={() => setPane(id)}>
-                    {id === "doc" ? "Documents" : id === "sheet" ? "Spreadsheets" : "Brain"}
-                  </button>
-                ))}
-              </div>
-              <article className="card">
-                {pane === "doc" ? (
-                  <>
-                    <h3>Launch brief</h3>
-                    <p>Decisions stay next to the sources they came from. The brain does not get the last word. You do.</p>
-                  </>
-                ) : null}
-                {pane === "sheet" ? (
-                  <>
-                    <h3>The sheet is the proof</h3>
-                    <p>
-                      A1 is {file.grid.A1}. A2 is {file.grid.A2}. A3 is {file.grid.A3}
-                      {result.value !== null ? `, which is ${result.value}.` : "."} If the brief names another gap, Sentinel says so.
-                    </p>
-                  </>
-                ) : null}
-                {pane === "split" ? (
-                  <>
-                    <h3>Lucien</h3>
-                    <p>
-                      The brain reads this file only. {clear ? "The brief matches the sheet." : "The brief and the sheet disagree."} It will not invent a source to smooth that over.
-                    </p>
-                  </>
-                ) : null}
-              </article>
-            </section>
-
-            <section className="section">
-              <div className="stack">
-                <article className="card">
-                  <h3>From first thought to final draft</h3>
-                  <p>Documents and spreadsheets belong on the same page. Change a cell and the check updates.</p>
-                </article>
-                <article className="card">
-                  <h3>A source behind the answer</h3>
-                  <p>Review the draft. Follow the cells. Keep the final say.</p>
-                </article>
-                <article className="card">
-                  <h3>Specialists, when you ask</h3>
-                  <p>
-                    Lucien plus the lenses you already keep — clarity, numbers, review. They insert a line you can edit. They do not pretend a vault of strangers wrote the file.
-                  </p>
-                </article>
-              </div>
-            </section>
-
-            <section className="section">
-              <p className="kicker">Room for the next idea</p>
-              <h2 style={{ margin: "10px 0 16px" }}>Make something worth sharing.</h2>
-              <button className="solid" type="button" onClick={openFiles}>
-                Open BrainDocs
+            <button type="button" onClick={() => { setRoute({ name: "home" }); setDrawer(false); }}>
+              Home
+            </button>
+            <button type="button" onClick={() => { setRoute({ name: "files", scope: "files" }); setDrawer(false); }}>
+              My files
+            </button>
+            <button type="button" onClick={() => { setRoute({ name: "files", scope: "starred" }); setDrawer(false); }}>
+              Starred
+            </button>
+            <button type="button" onClick={() => { setRoute({ name: "files", scope: "trash" }); setDrawer(false); }}>
+              Trash
+            </button>
+            {places.map((place) => (
+              <button
+                key={place.id}
+                type="button"
+                onClick={() => {
+                  setRoute({ name: "place", id: place.id });
+                  setDrawer(false);
+                }}
+              >
+                {place.label}
               </button>
-            </section>
-          </main>
-          <footer className="wrap">
-            <span>BrainDocs</span>
-            <span>Docs and sheets with a brain.</span>
-          </footer>
-        </>
-      ) : (
-        <Studio
-          file={file}
-          pane={pane}
-          setPane={setPane}
-          active={active}
-          setActive={setActive}
-          link={link}
-          setLink={setLink}
-          result={result.value}
-          mismatch={mismatch?.value ?? null}
-          clear={clear}
-          onDoc={(doc) => patch({ doc })}
-          onCell={(id, value) => patch({ grid: { ...file.grid, [id]: value } })}
-          onAlign={align}
-          onApprove={approve}
-          onRestore={(snap) => setFile((prev) => ({ ...prev, doc: snap.doc, grid: snap.grid, approvedAt: null }))}
-          onHome={() => setView("home")}
-          onInsert={(line) => patch({ doc: `${file.doc.trim()}\n\n${line}` })}
-        />
-      )}
-
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setLib((prev) => ({ ...prev, author: "" }));
+                setDrawer(false);
+                setRoute({ name: "home" });
+              }}
+            >
+              Sign out
+            </button>
+          </nav>
+        </div>
+      ) : null}
       {account ? (
-        <div className="sheet-modal" role="presentation" onClick={() => setAccount(false)}>
+        <div className="sheet-modal" onClick={() => setAccount(false)}>
           <article onClick={(e) => e.stopPropagation()}>
             <p className="kicker">This browser</p>
-            <h2>A name on the file.</h2>
-            <p className="fine">
-              Accounts that follow you to another device are not on this build. The name stays with the file here.
-            </p>
+            <h2>A name on the files.</h2>
+            <p className="fine">It stays here. Another device will not see it.</p>
             <label>
               Name
               <input
-                type="text"
-                value={file.author}
+                value={lib.author}
                 placeholder="Your name"
-                onChange={(e) => setFile((prev) => ({ ...prev, author: e.target.value.slice(0, 40) }))}
+                onChange={(e) => setLib((prev) => ({ ...prev, author: e.target.value.slice(0, 40) }))}
               />
             </label>
             <button className="solid" type="button" onClick={() => setAccount(false)}>
@@ -263,137 +182,92 @@ export function App() {
   );
 }
 
-function Studio(props: {
-  file: FileState;
-  pane: Pane;
-  setPane: (p: Pane) => void;
-  active: string;
-  setActive: (id: string) => void;
-  link: string;
-  setLink: (v: string) => void;
-  result: number | null;
-  mismatch: number | null;
-  clear: boolean;
-  onDoc: (doc: string) => void;
-  onCell: (id: string, value: string) => void;
-  onAlign: () => void;
-  onApprove: () => void;
-  onRestore: (snap: Snapshot) => void;
-  onHome: () => void;
-  onInsert: (line: string) => void;
+function launchBody() {
+  return `Launch brief
+
+Good ideas deserve a clear beginning.
+
+Bring the team together around one plan. The notes put the gap at 95.`;
+}
+
+function PlaceView({
+  id,
+  lib,
+  onBack,
+  onAuthor,
+  onClip,
+  onSignOut,
+}: {
+  id: Place;
+  lib: Library;
+  onBack: () => void;
+  onAuthor: (name: string) => void;
+  onClip: (clip: string) => void;
+  onSignOut: () => void;
 }) {
-  const { file, result, mismatch, clear } = props;
+  const place = places.find((item) => item.id === id)!;
+  const [clip, setClip] = useState("");
   return (
-    <div className="studio">
+    <div className="page">
       <header className="studio-bar">
-        <button className="brand" type="button" onClick={props.onHome}>
-          <Mark />
-          BrainDocs
+        <button className="quiet" type="button" onClick={onBack}>
+          Back
         </button>
-        <button className="solid" type="button" disabled={!clear} onClick={props.onApprove}>
-          {file.approvedAt ? "Approved" : "Approve"}
-        </button>
+        <h2>{place.label}</h2>
       </header>
-      <div className="file-tabs">
-        {(["doc", "sheet", "split"] as Pane[]).map((id) => (
-          <button key={id} className="ghost" type="button" data-on={props.pane === id} onClick={() => props.setPane(id)}>
-            {id === "doc" ? "Doc" : id === "sheet" ? "Sheet" : "Split"}
-          </button>
-        ))}
-      </div>
-      <div className="work">
-        {props.pane !== "sheet" ? (
-          <section className="doc-edit">
-            <p className="fine">launch-brief.md {file.author ? `· ${file.author}` : ""}</p>
-            <textarea aria-label="Document" value={file.doc} onChange={(e) => props.onDoc(e.target.value)} />
-            <div className="row">
-              <button className="ghost" type="button" onClick={() => props.onInsert("Clarity: say the decision in one sentence.")}>
-                Clarity
-              </button>
-              <button className="ghost" type="button" onClick={() => props.onInsert("Numbers: the gap has to match cell A3.")}>
-                Numbers
-              </button>
-              <button className="ghost" type="button" onClick={() => props.onInsert("Review: approve only after the sheet agrees.")}>
-                Review
-              </button>
-            </div>
-          </section>
-        ) : null}
-        {props.pane !== "doc" ? (
-          <section className="side">
-            <table className="sheet">
-              <thead>
-                <tr>
-                  <th />
-                  <th>A</th>
-                  <th>B</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[1, 2, 3].map((row) => (
-                  <tr key={row}>
-                    <th>{row}</th>
-                    {["A", "B"].map((col) => {
-                      const id = `${col}${row}`;
-                      return (
-                        <td key={id} data-on={props.active === id}>
-                          <input
-                            aria-label={id}
-                            value={file.grid[id] ?? ""}
-                            onFocus={() => props.setActive(id)}
-                            onChange={(e) => props.onCell(id, e.target.value)}
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="fine">
-              {props.active} {file.grid[props.active]?.startsWith("=") ? `→ ${compute(file.grid, props.active).value ?? "—"}` : ""}
-            </p>
-            {mismatch !== null && result !== null ? (
-              <div className="flag">
-                <strong>Contradiction</strong>
-                <p className="fine">The brief says {mismatch}. A3 is {file.grid.A3}, which is {result}.</p>
-                <button className="solid" type="button" onClick={props.onAlign}>
-                  Align the brief to {result}
-                </button>
-              </div>
-            ) : (
-              <p className="ok">{clear ? "The brief matches the sheet." : "A3 needs a number before this can be checked."}</p>
-            )}
-            <label>
-              Video link
-              <input
-                type="text"
-                value={props.link}
-                placeholder="Paste a link"
-                onChange={(e) => props.setLink(e.target.value)}
-              />
-            </label>
-            <p className="fine">
-              {props.link
-                ? "Saved on this page. A transcript is not fetched from here."
-                : "A transcript is not pulled in this build. The link can wait on the page."}
-            </p>
-            <div className="versions">
-              <p className="fine">Version history</p>
-              {file.versions.length === 0 ? <p className="fine">Approve a clean file to keep a version.</p> : null}
-              {file.versions.map((snap) => (
-                <button key={snap.at} className="ghost" type="button" onClick={() => props.onRestore(snap)}>
-                  {new Date(snap.at).toLocaleString()}
-                </button>
+      <section className="pad stack">
+        <p>{place.body}</p>
+        {id === "memory" ? (
+          <ul className="file-list">
+            {lib.files
+              .filter((file) => !file.trashed)
+              .map((file) => (
+                <li key={file.id}>
+                  <span className="file-main">
+                    <strong>{file.name}</strong>
+                  </span>
+                </li>
               ))}
-            </div>
-          </section>
+          </ul>
         ) : null}
-      </div>
-      <footer className="status">
-        <span>{file.approvedAt ? "Approved" : clear ? "Ready for review" : "Approval needed"}</span>
-        <span>A3 {result ?? "—"}</span>
-      </footer>
+        {id === "settings" ? (
+          <label>
+            Name
+            <input value={lib.author} onChange={(e) => onAuthor(e.target.value.slice(0, 40))} />
+          </label>
+        ) : null}
+        {id === "transcribe" ? (
+          <>
+            <label>
+              Link
+              <input value={clip} onChange={(e) => setClip(e.target.value)} placeholder="Paste a link" />
+            </label>
+            <button
+              className="solid"
+              type="button"
+              onClick={() => {
+                if (!clip.trim()) return;
+                onClip(clip.trim());
+                setClip("");
+              }}
+            >
+              Keep the link
+            </button>
+            <ul className="file-list">
+              {lib.clips.map((item) => (
+                <li key={item}>
+                  <span className="fine">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {id === "settings" ? (
+          <button className="ghost" type="button" onClick={onSignOut}>
+            Clear the name
+          </button>
+        ) : null}
+      </section>
     </div>
   );
 }

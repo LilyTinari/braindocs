@@ -1,25 +1,32 @@
 import { useEffect, useRef } from "react";
 
-type P = { x: number; y: number; z: number };
-
-function sphere(i: number, n: number): P {
-  const y = 1 - (i / Math.max(1, n - 1)) * 2;
-  const r = Math.sqrt(Math.max(0, 1 - y * y));
-  const theta = Math.PI * (3 - Math.sqrt(5)) * i;
-  return { x: Math.cos(theta) * r, y, z: Math.sin(theta) * r };
-}
-
-function sculpt(i: number, n: number): P {
-  const p = sphere(i, n);
-  const hemi = p.x >= 0 ? 1 : -1;
-  const theta = Math.atan2(p.z, p.x);
-  const sulci = 0.9 + 0.07 * Math.sin(theta * 7 + p.y * 9) * Math.cos(p.y * 6);
-  const fissure = hemi * 0.12;
-  return {
-    x: p.x * 0.78 * sulci + fissure,
-    y: p.y * 0.92 * sulci + 0.06,
-    z: p.z * 0.62 * sulci,
-  };
+function lobe(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  t: number,
+  flip: number,
+) {
+  for (let ring = 1; ring <= 7; ring++) {
+    const k = ring / 7;
+    ctx.beginPath();
+    for (let step = 0; step <= 64; step++) {
+      const a = (step / 64) * Math.PI * 2;
+      const wave = 1 + 0.045 * Math.sin(a * 5 + ring + t) + 0.02 * Math.sin(a * 11 - t);
+      const x = cx + Math.cos(a) * rx * k * wave * flip;
+      const y = cy + Math.sin(a) * ry * k * wave * (0.92 + 0.04 * Math.sin(t + ring));
+      if (step === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(cx - rx * 0.15 * flip, cy - ry * 0.55);
+  ctx.quadraticCurveTo(cx + rx * 0.35 * flip, cy, cx - rx * 0.05 * flip, cy + ry * 0.72);
+  ctx.stroke();
 }
 
 export function DocBrain({ className }: { className?: string }) {
@@ -31,18 +38,10 @@ export function DocBrain({ className }: { className?: string }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const count = 220;
-    const pts = Array.from({ length: count }, (_, i) => sculpt(i, count));
-    const stem: P[] = Array.from({ length: 18 }, (_, i) => ({
-      x: Math.sin(i) * 0.05,
-      y: -0.95 - i * 0.035,
-      z: Math.cos(i * 0.7) * 0.04,
-    }));
-    const all = pts.concat(stem);
     let frame = 0;
     let alive = true;
 
-    const draw = (t: number) => {
+    const draw = (now: number) => {
       if (!alive) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = canvas.clientWidth;
@@ -55,46 +54,22 @@ export function DocBrain({ className }: { className?: string }) {
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-
-      const yaw = reduce ? 0.5 : t * 0.00022;
-      const bob = reduce ? 0 : Math.sin(t * 0.0008) * h * 0.02;
+      const t = reduce ? 0.6 : now * 0.0007;
+      const bob = reduce ? 0 : Math.sin(now * 0.0008) * 6;
       const cx = w * 0.5;
-      const cy = h * 0.46 + bob;
-      const scale = Math.min(w, h) * 0.34;
-      const cos = Math.cos(yaw);
-      const sin = Math.sin(yaw);
-
-      const proj = all.map((p) => {
-        const x = p.x * cos - p.z * sin;
-        const z = p.x * sin + p.z * cos;
-        const depth = (z + 1.4) / 2.2;
-        return { x: cx + x * scale, y: cy - p.y * scale, z, depth };
-      });
-
-      ctx.lineWidth = 1;
-      for (let i = 0; i < proj.length; i++) {
-        const a = proj[i];
-        for (let j = i + 1; j < Math.min(proj.length, i + 14); j++) {
-          const b = proj[j];
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          if (dx * dx + dy * dy > 28 * 28) continue;
-          const alpha = 0.05 + (a.depth + b.depth) * 0.12;
-          ctx.strokeStyle = `rgba(61, 214, 140, ${alpha})`;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-      }
-
-      for (const p of proj) {
-        ctx.fillStyle = p.depth > 0.55 ? "rgba(232, 255, 244, 0.9)" : "rgba(61, 214, 140, 0.75)";
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 1.15 + p.depth, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
+      const cy = h * 0.48 + bob;
+      const rx = Math.min(w, h) * 0.2;
+      const ry = rx * 1.15;
+      ctx.lineWidth = 1.15;
+      ctx.strokeStyle = "rgba(61, 214, 140, 0.78)";
+      lobe(ctx, cx - rx * 0.72, cy, rx, ry, t, 1);
+      ctx.strokeStyle = "rgba(158, 201, 212, 0.72)";
+      lobe(ctx, cx + rx * 0.72, cy, rx, ry, t + 0.8, -1);
+      ctx.strokeStyle = "rgba(61, 214, 140, 0.35)";
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - ry * 0.2);
+      ctx.lineTo(cx, cy + ry * 1.15);
+      ctx.stroke();
       if (!reduce) frame = requestAnimationFrame(draw);
     };
 

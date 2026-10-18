@@ -53,3 +53,72 @@ export function alignClaim(text: string, next: number) {
   CLAIM.lastIndex = 0;
   return text.replace(CLAIM, (full, num: string) => full.replace(num, String(next)));
 }
+
+export const COLS = ["A", "B", "C", "D", "E"] as const;
+export const ROWS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+export function shown(grid: Grid, id: string) {
+  const raw = (grid[id] ?? "").trim();
+  if (!raw) return "";
+  if (!raw.startsWith("=")) return raw;
+  const value = compute(grid, id);
+  if (value.value === null) return value.error ?? "";
+  return String(round(value.value));
+}
+
+function round(n: number) {
+  return Math.round(n * 1000) / 1000;
+}
+
+export function toCsv(grid: Grid) {
+  return ROWS.map((row) =>
+    COLS.map((col) => csvCell(grid[`${col}${row}`] ?? "")).join(","),
+  ).join("\n");
+}
+
+function csvCell(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+export function fromCsv(text: string): Grid {
+  const grid: Grid = {};
+  text
+    .replaceAll("\r", "")
+    .split("\n")
+    .slice(0, ROWS.length)
+    .forEach((line, rowIndex) => {
+      parseLine(line)
+        .slice(0, COLS.length)
+        .forEach((cell, colIndex) => {
+          if (cell.trim()) grid[`${COLS[colIndex]}${ROWS[rowIndex]}`] = cell.trim();
+        });
+    });
+  return grid;
+}
+
+function parseLine(line: string) {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted && ch === '"' && line[i + 1] === '"') {
+      cur += '"';
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (ch === "," && !quoted) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
