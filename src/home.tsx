@@ -111,27 +111,37 @@ export function Home({
       </header>
       <section className="story" ref={story} aria-label="A document. Its lines gather into a brain. Drag sideways to turn it.">
         <div className="story-pin field">
-          <DocBrain className="field-brain" assembled={!play} />
+          <DocBrain className="field-brain" assembled={!play} hint soften />
           <div className="veil" />
           <div className="field-fade">
             <div className="wrap field-copy">
-              <p className="kicker">Your workspace. With a brain.</p>
-              <h1>
-                Your ideas, <em>connected.</em>
-              </h1>
-              <p className="lede">
-                Write, calculate and create together. A shared space for your work — with a brain that
-                thinks alongside you, inside the file.
-              </p>
-              <div className="row">
-                <button className="solid" type="button" onClick={onFiles}>
-                  Open my files
-                </button>
-                <button className="ghost" type="button" onClick={onAccount}>
-                  Create an account
-                </button>
+              <div className="copy-plate">
+                <p className="kicker">Your workspace. With a brain.</p>
+                <h1>
+                  Your ideas, <em>connected.</em>
+                </h1>
+                <p className="lede">
+                  Write, calculate and create together. A shared space for your work — with a brain that
+                  thinks alongside you, inside the file.
+                </p>
+                <div className="row">
+                  <button className="solid" type="button" onClick={onFiles}>
+                    Open my files
+                  </button>
+                  <button className="ghost" type="button" onClick={onAccount}>
+                    Create an account
+                  </button>
+                </div>
+                <p className="hint">
+                  <span className="chev" aria-hidden="true">
+                    ←
+                  </span>
+                  Drag sideways to turn the page
+                  <span className="chev" aria-hidden="true">
+                    →
+                  </span>
+                </p>
               </div>
-              <p className="hint">The lines settle into the brain. Drag the page to turn it.</p>
             </div>
           </div>
         </div>

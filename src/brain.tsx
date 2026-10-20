@@ -29,6 +29,7 @@ const pointVert = /* glsl */ `
   attribute float aRind;
   uniform float uTime;
   uniform float uEase;
+  uniform float uSoft;
   varying float vAlpha;
   varying float vRind;
   void main() {
@@ -38,10 +39,13 @@ const pointVert = /* glsl */ `
     vec3 p = mix(line, position, uEase);
     float pulse = 0.9 + 0.1 * sin(uTime * (0.45 + aSeed) + aSeed * 14.0);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    vAlpha = (0.45 + uEase * 0.55) * pulse * (aRind > 1.5 ? 0.55 : 1.0);
+    float alpha = (0.45 + uEase * 0.55) * pulse * (aRind > 1.5 ? 0.55 : 1.0);
     float size = aRind > 1.5 ? 36.0 : mix(3.6, 7.4, aRind);
     gl_PointSize = clamp(size * pulse * (190.0 / -mv.z), 1.0, aRind > 1.5 ? 64.0 : 11.0);
     gl_Position = projectionMatrix * mv;
+    float ndcY = gl_Position.y / gl_Position.w;
+    float low = smoothstep(0.2, -0.95, ndcY);
+    vAlpha = alpha * mix(1.0, 0.22, low * uSoft);
   }
 `;
 
@@ -65,10 +69,14 @@ export function DocBrain({
   className,
   count = 900,
   assembled = false,
+  hint = false,
+  soften = false,
 }: {
   className?: string;
   count?: number;
   assembled?: boolean;
+  hint?: boolean;
+  soften?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const paper = useRef<HTMLDivElement>(null);
@@ -131,7 +139,11 @@ export function DocBrain({
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uEase: easeUniform },
+      uniforms: {
+        uTime: { value: 0 },
+        uEase: easeUniform,
+        uSoft: { value: soften ? 1 : 0 },
+      },
     });
     group.add(new THREE.Points(pointsGeo, pointMat));
 
@@ -170,6 +182,7 @@ export function DocBrain({
     let frame = 0;
     let visible = true;
     let pointer = 0;
+    let axis: "" | "x" | "y" = "";
     let origin = { x: 0, y: 0, yaw: drag.x, pitch: drag.y };
 
     const resize = () => {
@@ -196,7 +209,7 @@ export function DocBrain({
       const raw = still || assembled ? 1 : Math.min(1, Math.max(0, (now - born - 600) / 1800));
       const ease = raw * raw * (3 - 2 * raw);
       easeUniform.value = ease;
-      pointMat.uniforms.uTime!.value = now * 0.001;
+      pointMat.uniforms.uTime!.value = still ? 0 : now * 0.001;
       tractMat.opacity = 0.3 * ease;
       sheet.style.setProperty("--ease", ease.toFixed(3));
       group.rotation.y += ((drag.x + (still ? 0 : now * 0.00008)) - group.rotation.y) * 0.12;
@@ -207,6 +220,7 @@ export function DocBrain({
 
     const onDown = (event: PointerEvent) => {
       pointer = event.pointerId;
+      axis = "";
       origin = { x: event.clientX, y: event.clientY, yaw: drag.x, pitch: drag.y };
     };
     const onMove = (event: PointerEvent) => {
@@ -214,12 +228,29 @@ export function DocBrain({
       if (event.pointerType === "mouse" && event.buttons === 0) return;
       const dx = event.clientX - origin.x;
       const dy = event.clientY - origin.y;
-      if (Math.abs(dy) > Math.abs(dx)) return;
+      if (!axis) {
+        if (Math.hypot(dx, dy) < 10) return;
+        axis = Math.abs(dx) > Math.abs(dy) * 1.25 ? "x" : "y";
+        if (axis === "y") {
+          pointer = 0;
+          return;
+        }
+        sheet.classList.add("turned");
+        try {
+          view.setPointerCapture(event.pointerId);
+        } catch {
+          /* the page still turns without capture */
+        }
+      }
+      if (axis !== "x") return;
       drag.x = origin.yaw + dx * 0.008;
-      drag.y = Math.max(-0.6, Math.min(0.6, origin.pitch + dy * 0.004));
+      if (event.pointerType !== "touch") {
+        drag.y = Math.max(-0.55, Math.min(0.55, origin.pitch + dy * 0.003));
+      }
     };
     const onUp = () => {
       pointer = 0;
+      axis = "";
     };
     view.addEventListener("pointerdown", onDown);
     view.addEventListener("pointermove", onMove);
@@ -240,7 +271,7 @@ export function DocBrain({
       tractMat.dispose();
       renderer.dispose();
     };
-  }, [assembled, count]);
+  }, [assembled, count, soften]);
 
   return (
     <div className={className ?? "doc-brain"} ref={root}>
@@ -248,6 +279,17 @@ export function DocBrain({
         <span className="rules" />
         <canvas ref={canvas} aria-hidden="true" />
         <span className="fold" />
+        {hint ? (
+          <p className="turn-hint">
+            <span className="chev" aria-hidden="true">
+              ←
+            </span>
+            Drag to turn
+            <span className="chev" aria-hidden="true">
+              →
+            </span>
+          </p>
+        ) : null}
       </div>
     </div>
   );
