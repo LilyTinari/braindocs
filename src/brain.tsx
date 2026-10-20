@@ -1,78 +1,69 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-// brain.glb is CC0, adapted from MakeHuman.
+function cortex(x: number, y: number, z: number): [number, number, number] {
+  const r = Math.hypot(x, y, z) || 1;
+  const nx = x / r;
+  const ny = y / r;
+  const nz = z / r;
+  const theta = Math.atan2(nz, nx);
+  const phi = Math.acos(Math.max(-1, Math.min(1, ny)));
+  const g =
+    1 +
+    0.045 * Math.sin(theta * 5 + phi * 2) +
+    0.038 * Math.sin(phi * 4.5) +
+    0.02 * Math.sin(theta * 9 + phi * 3);
+  const lobe = nx >= 0 ? 1 : -1;
+  let px = nx * 0.9 * g + lobe * 0.1;
+  let py = ny * 0.98 * g * (ny < -0.05 ? 0.84 : 1);
+  let pz = nz * 0.76 * g;
+  if (py < 0.08 && pz > 0.05) py -= 0.07;
+  const fiss = Math.exp(-px * px * 36) * 0.045;
+  px += Math.sign(px || lobe) * fiss;
+  py -= fiss * 0.35;
+  return [px, py, pz];
+}
 
-const surfaceVert = /* glsl */ `
-  varying vec3 vN;
-  varying vec3 vWorld;
-  varying vec3 vPos;
-  void main() {
-    vPos = position;
-    vec4 world = modelMatrix * vec4(position, 1.0);
-    vWorld = world.xyz;
-    vN = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-
-const surfaceFrag = /* glsl */ `
+const pointVert = /* glsl */ `
+  attribute float aSeed;
+  attribute float aRind;
   uniform float uTime;
   uniform float uEase;
-  varying vec3 vN;
-  varying vec3 vWorld;
-  varying vec3 vPos;
+  varying float vAlpha;
+  varying float vRind;
   void main() {
-    vec3 n = normalize(vN);
-    vec3 viewDir = normalize(cameraPosition - vWorld);
-    float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 2.0);
-    float gold = smoothstep(-0.35, 0.8, n.x);
-    vec3 teal = vec3(0.2, 0.86, 0.78);
-    vec3 amber = vec3(1.0, 0.74, 0.26);
-    vec3 upLight = normalize(vec3(0.1, 0.75, 0.6));
-    vec3 keyLight = normalize(vec3(0.75, 0.2, 0.5));
-    float up = clamp(dot(n, upLight) * 0.65 + 0.35, 0.0, 1.0);
-    float key = clamp(dot(n, keyLight) * 0.6 + 0.4, 0.0, 1.0);
-    vec3 body = mix(vec3(0.02, 0.14, 0.16), teal, up);
-    body = mix(body, amber, gold * key * 0.78);
-    body += teal * pow(key, 2.2) * 0.25;
-    vec3 col = body + mix(teal, amber, gold) * fres * 0.85;
-    col *= 0.96 + 0.04 * sin(uTime * 0.6 + vPos.y * 5.0);
-    gl_FragColor = vec4(col, uEase);
-  }
-`;
-
-const nodeVert = /* glsl */ `
-  attribute float aGold;
-  uniform float uEase;
-  varying float vGold;
-  void main() {
-    vGold = aGold;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = clamp((aGold > 0.5 ? 7.0 : 4.5) * (160.0 / -mv.z), 1.5, 12.0);
+    vRind = aRind;
+    float row = fract(aSeed * 8.0);
+    vec3 line = vec3((aSeed - 0.5) * 1.45, (row - 0.5) * 2.15, 0.02);
+    vec3 p = mix(line, position, uEase);
+    float pulse = 0.9 + 0.1 * sin(uTime * (0.45 + aSeed) + aSeed * 14.0);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    vAlpha = (0.45 + uEase * 0.55) * pulse * (aRind > 1.5 ? 0.55 : 1.0);
+    float size = aRind > 1.5 ? 36.0 : mix(3.6, 7.4, aRind);
+    gl_PointSize = clamp(size * pulse * (190.0 / -mv.z), 1.0, aRind > 1.5 ? 64.0 : 11.0);
     gl_Position = projectionMatrix * mv;
   }
 `;
 
-const nodeFrag = /* glsl */ `
-  uniform float uEase;
-  varying float vGold;
+const pointFrag = /* glsl */ `
+  varying float vAlpha;
+  varying float vRind;
   void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
     float r = dot(uv, uv);
     if (r > 1.0) discard;
-    float core = exp(-r * 7.0);
-    float halo = exp(-r * 2.0);
-    vec3 teal = vec3(0.45, 0.9, 0.86);
-    vec3 amber = vec3(1.0, 0.82, 0.4);
-    vec3 col = mix(teal, amber, vGold);
-    gl_FragColor = vec4(col, (core + halo * 0.45) * uEase);
+    float core = exp(-r * 8.0);
+    float halo = exp(-r * 2.2);
+    vec3 ivory = vec3(0.96, 0.96, 0.94);
+    vec3 neural = vec3(0.62, 0.82, 0.86);
+    vec3 col = mix(neural, ivory, core * mix(0.35, 0.85, vRind));
+    gl_FragColor = vec4(col, (core * 0.9 + halo * 0.35) * vAlpha);
   }
 `;
 
 export function DocBrain({
   className,
+  count = 900,
   assembled = false,
 }: {
   className?: string;
@@ -88,7 +79,6 @@ export function DocBrain({
     const host = root.current;
     const sheet = paper.current;
     if (!view || !host || !sheet) return;
-
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const renderer = new THREE.WebGLRenderer({
       canvas: view,
@@ -98,104 +88,85 @@ export function DocBrain({
     });
     renderer.setClearColor(0x000000, 0);
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 30);
-    camera.position.set(0, 0.05, 3.5);
-
-    const turn = new THREE.Group();
-    const spin = new THREE.Group();
-    scene.add(turn);
-    turn.add(spin);
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+    camera.position.z = 3.7;
+    const group = new THREE.Group();
+    scene.add(group);
 
     const easeUniform = { value: assembled || still ? 1 : 0 };
-    const timeUniform = { value: 0 };
-    const surface = new THREE.ShaderMaterial({
-      vertexShader: surfaceVert,
-      fragmentShader: surfaceFrag,
+    const n = Math.min(count, 1500);
+    const positions = new Float32Array((n + 2) * 3);
+    const seeds = new Float32Array(n + 2);
+    const rinds = new Float32Array(n + 2);
+    for (let i = 0; i < n; i++) {
+      const y = 1 - (i / (n - 1)) * 2;
+      const ring = Math.sqrt(Math.max(0, 1 - y * y));
+      const theta = i * 2.399963;
+      const rind = i % 5 === 0;
+      const p = cortex(Math.cos(theta) * ring, y, Math.sin(theta) * ring);
+      const depth = rind ? 1.02 : 0.9 + ((i * 0.17) % 1) * 0.08;
+      positions[i * 3] = p[0] * depth;
+      positions[i * 3 + 1] = p[1] * depth;
+      positions[i * 3 + 2] = p[2] * depth;
+      seeds[i] = (i * 0.618) % 1;
+      rinds[i] = rind ? 1 : 0;
+    }
+    positions[n * 3] = -0.42;
+    positions[n * 3 + 1] = 0.05;
+    positions[n * 3 + 2] = 0.1;
+    positions[(n + 1) * 3] = 0.42;
+    positions[(n + 1) * 3 + 1] = 0.05;
+    positions[(n + 1) * 3 + 2] = 0.1;
+    rinds[n] = 2;
+    rinds[n + 1] = 2;
+    seeds[n] = 0.2;
+    seeds[n + 1] = 0.8;
+    const pointsGeo = new THREE.BufferGeometry();
+    pointsGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    pointsGeo.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
+    pointsGeo.setAttribute("aRind", new THREE.BufferAttribute(rinds, 1));
+    const pointMat = new THREE.ShaderMaterial({
+      vertexShader: pointVert,
+      fragmentShader: pointFrag,
       transparent: true,
-      depthWrite: true,
-      toneMapped: false,
-      uniforms: { uTime: timeUniform, uEase: easeUniform },
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uEase: easeUniform },
     });
+    group.add(new THREE.Points(pointsGeo, pointMat));
 
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x8fe3d4,
+    const tractPos: number[] = [];
+    for (let t = 0; t < 16; t++) {
+      const a = (t * 53) % n;
+      const b = (t * 91 + 20) % n;
+      if (positions[a * 3]! * positions[b * 3]! > 0 && t % 2 === 0) continue;
+      for (let s = 0; s < 12; s++) {
+        const u0 = s / 12;
+        const u1 = (s + 1) / 12;
+        const lift = (u: number) => Math.sin(u * Math.PI) * 0.08;
+        tractPos.push(
+          positions[a * 3]! + (positions[b * 3]! - positions[a * 3]!) * u0,
+          positions[a * 3 + 1]! + (positions[b * 3 + 1]! - positions[a * 3 + 1]!) * u0 + lift(u0),
+          positions[a * 3 + 2]! + (positions[b * 3 + 2]! - positions[a * 3 + 2]!) * u0,
+          positions[a * 3]! + (positions[b * 3]! - positions[a * 3]!) * u1,
+          positions[a * 3 + 1]! + (positions[b * 3 + 1]! - positions[a * 3 + 1]!) * u1 + lift(u1),
+          positions[a * 3 + 2]! + (positions[b * 3 + 2]! - positions[a * 3 + 2]!) * u1,
+        );
+      }
+    }
+    const tractGeo = new THREE.BufferGeometry();
+    tractGeo.setAttribute("position", new THREE.Float32BufferAttribute(tractPos, 3));
+    const tractMat = new THREE.LineBasicMaterial({
+      color: 0xc5e6f0,
       transparent: true,
       opacity: 0.28,
-      toneMapped: false,
     });
-    const goldRing = new THREE.MeshBasicMaterial({
-      color: 0xe2b15a,
-      transparent: true,
-      opacity: 0.22,
-      toneMapped: false,
-    });
+    const tracts = new THREE.LineSegments(tractGeo, tractMat);
+    group.add(tracts);
 
-    let alive = true;
-    const loader = new GLTFLoader();
-    loader.load("/brain.glb", (gltf) => {
-      if (!alive) return;
-      const model = gltf.scene;
-      model.traverse((child) => {
-        const mesh = child as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        const geo = mesh.geometry;
-        if (!geo.getAttribute("normal")) geo.computeVertexNormals();
-        mesh.material = surface;
-      });
-      const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      model.position.sub(center);
-      const fit = 1.62 / Math.max(size.x, size.y, size.z);
-      model.scale.setScalar(fit);
-      model.rotation.x = 0.28;
-      spin.add(model);
-
-      const reach = Math.max(size.x, size.y) * fit * 0.72;
-      const rings: Array<[number, number, number, THREE.Material]> = [
-        [reach * 1.15, 1.15, 0.2, ringMat],
-        [reach * 1.32, 0.35, 1.1, goldRing],
-        [reach * 1.05, 1.7, -0.4, ringMat],
-      ];
-      for (const [radius, rx, ry, material] of rings) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.01, 8, 96), material);
-        ring.rotation.set(rx, ry, 0);
-        turn.add(ring);
-      }
-
-      const nodeCount = 28;
-      const positions = new Float32Array(nodeCount * 3);
-      const golds = new Float32Array(nodeCount);
-      for (let i = 0; i < nodeCount; i++) {
-        const ring = rings[i % rings.length]!;
-        const a = (i / nodeCount) * Math.PI * 2 + i;
-        const r = ring[0];
-        positions[i * 3] = Math.cos(a) * r;
-        positions[i * 3 + 1] = Math.sin(a) * r * 0.35;
-        positions[i * 3 + 2] = Math.sin(a) * r;
-        golds[i] = i % 3 === 0 ? 1 : 0;
-      }
-      const nodes = new THREE.BufferGeometry();
-      nodes.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-      nodes.setAttribute("aGold", new THREE.BufferAttribute(golds, 1));
-      turn.add(
-        new THREE.Points(
-          nodes,
-          new THREE.ShaderMaterial({
-            vertexShader: nodeVert,
-            fragmentShader: nodeFrag,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending,
-            toneMapped: false,
-            uniforms: { uEase: easeUniform },
-          }),
-        ),
-      );
-    });
-
-    const drag = { x: 0.35, y: 0.08 };
+    const drag = { x: 0.5, y: 0.12 };
     const born = performance.now();
+    let alive = true;
     let frame = 0;
     let visible = true;
     let pointer = 0;
@@ -205,7 +176,8 @@ export function DocBrain({
       const w = sheet.clientWidth;
       const h = sheet.clientHeight;
       if (w < 2 || h < 2) return;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, w < 700 ? 1.5 : 2));
+      const dpr = Math.min(window.devicePixelRatio || 1, w < 700 ? 1.5 : 2);
+      renderer.setPixelRatio(dpr);
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -221,15 +193,14 @@ export function DocBrain({
 
     const draw = (now: number) => {
       if (!alive) return;
-      const raw = still || assembled ? 1 : Math.min(1, Math.max(0, (now - born - 400) / 1600));
+      const raw = still || assembled ? 1 : Math.min(1, Math.max(0, (now - born - 600) / 1800));
       const ease = raw * raw * (3 - 2 * raw);
       easeUniform.value = ease;
-      timeUniform.value = now * 0.001;
-      ringMat.opacity = 0.3 * ease;
-      goldRing.opacity = 0.24 * ease;
-      if (!still) spin.rotation.y += 0.0016;
-      turn.rotation.y += (drag.x - turn.rotation.y) * 0.12;
-      turn.rotation.x += (drag.y - turn.rotation.x) * 0.12;
+      pointMat.uniforms.uTime!.value = now * 0.001;
+      tractMat.opacity = 0.3 * ease;
+      sheet.style.setProperty("--ease", ease.toFixed(3));
+      group.rotation.y += ((drag.x + (still ? 0 : now * 0.00008)) - group.rotation.y) * 0.12;
+      group.rotation.x += (drag.y - group.rotation.x) * 0.12;
       renderer.render(scene, camera);
       if (visible) frame = requestAnimationFrame(draw);
     };
@@ -245,13 +216,13 @@ export function DocBrain({
       const dy = event.clientY - origin.y;
       if (Math.abs(dy) > Math.abs(dx)) return;
       drag.x = origin.yaw + dx * 0.008;
-      drag.y = Math.max(-0.55, Math.min(0.55, origin.pitch + dy * 0.004));
+      drag.y = Math.max(-0.6, Math.min(0.6, origin.pitch + dy * 0.004));
     };
-    view.addEventListener("pointerdown", onDown);
-    view.addEventListener("pointermove", onMove);
     const onUp = () => {
       pointer = 0;
     };
+    view.addEventListener("pointerdown", onDown);
+    view.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     frame = requestAnimationFrame(draw);
 
@@ -263,19 +234,13 @@ export function DocBrain({
       view.removeEventListener("pointerdown", onDown);
       view.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      surface.dispose();
-      ringMat.dispose();
-      goldRing.dispose();
-      scene.traverse((child) => {
-        const mesh = child as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        const material = (mesh as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(material)) material.forEach((item) => item.dispose());
-        else material?.dispose();
-      });
+      pointsGeo.dispose();
+      tractGeo.dispose();
+      pointMat.dispose();
+      tractMat.dispose();
       renderer.dispose();
     };
-  }, [assembled]);
+  }, [assembled, count]);
 
   return (
     <div className={className ?? "doc-brain"} ref={root}>
